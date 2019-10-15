@@ -101,6 +101,11 @@ def string_to_datetime(date_string):
     ).replace(tzinfo=pytz.utc)
 
 
+def timestamp_to_datetime(timestamp):
+    epoch_sec = int(timestamp) / 1000
+    return datetime.fromtimestamp(epoch_sec, tz=pytz.utc)
+
+
 @six.add_metaclass(ABCMeta)
 class ReplayDataStorageMechanism:
     @abstractmethod
@@ -490,6 +495,7 @@ class SalesforceStreamingClient(BayeuxClient):
     def generic_callback(self, connect_response_element):
         channel = connect_response_element['channel']
         event_data = connect_response_element['data']['event']
+        payload = connect_response_element['data']['payload']
         this_replay_id = event_data['replayId']
 
         if channel not in self.replay_data:
@@ -500,14 +506,16 @@ class SalesforceStreamingClient(BayeuxClient):
             # have a CreatedDate in the payload.  Instead of bringing type
             # through to the callback, we just find one.
             created_date = None
-            if 'createdDate' in event_data:
-                created_date = event_data['createdDate']
+            if payload.get('ChangeEventHeader'):
+                commit_ts = payload['ChangeEventHeader']['commitTimestamp']
+                created_date = timestamp_to_datetime(commit_ts)
+            elif 'createdDate' in event_data:
+                created_date = string_to_datetime(event_data['createdDate'])
             else:
-                payload = connect_response_element['data']['payload']
-                created_date = payload['CreatedDate']
+                created_date = string_to_datetime(payload['CreatedDate'])
 
             self.replay_data[channel][this_replay_id] = {
-                'created_date': string_to_datetime(created_date),
+                'created_date': created_date,
                 'callbacks': set([])
             }
 
